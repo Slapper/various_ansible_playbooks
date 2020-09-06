@@ -1,0 +1,159 @@
+---
+- name: Update operating system - CentOS 7 or 8
+  hosts: all
+  become: yes
+
+  vars:
+    centos_7_repos: "base,updates,zabbix"
+    centos_8_repos: "AppStream,BaseOS,zabbix"
+
+  tasks:
+
+### Starting proccess for centos 8 ############################################################
+
+    - name: check packages for updates on Centos 8
+      shell: dnf list updates --disablerepo="*" --enablerepo={{ centos_8_repos }} | awk 'f;/Available Upgrades/{f=1;}' | awk '{ print $1 }'
+      changed_when: packages_update8.stdout_lines | length > 0
+      args:
+        warn: false
+      register: packages_update8
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "8"
+
+    - name: display packages that are going to be updated on Centos 8 
+      debug:
+        msg: "Found {{ packages_update8.stdout_lines | length }} packages to be updated:\n\n{{ packages_update8.stdout_lines }}"
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "8"
+ 
+    - fail:
+        msg: System is already updated
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "8" and packages_update8.stdout_lines | length == 0
+
+    - block:
+      - name: Install updates from "{{ centos_8_repos }}" using dnf module for Centos 8
+        dnf:
+          name: "*"
+          state: latest
+          enablerepo: '{{ centos_8_repos }}'
+          disablerepo: '*'   
+
+      - name: install yum-utils package
+        dnf:
+          name: yum-utils
+          state: latest
+          enablerepo: '{{ centos_8_repos }}'
+          disablerepo: '*'
+
+      - name: check if reboot is required with /bin/dnf needs-restarting -r for Centos 8
+        shell: /bin/dnf needs-restarting -r
+        args:
+          warn: no
+        failed_when: false
+        register: reboot_required8
+        changed_when: false
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "8" and packages_update8.stdout_lines | length > 0
+
+##### Print variables for debug
+ 
+    - name: Print needs-restarting exit code for Centos 8 
+      debug:
+        var: reboot_required8.rc
+      when:
+        - ansible_distribution == "CentOS"
+        - ansible_distribution_major_version == "8"
+        - packages_update8.stdout_lines | length > 0
+
+## reboot centos 8 if required
+
+    - block:
+      - name: reboot the server if required
+        reboot:
+          reboot_timeout: 600
+
+      - name: wait for server to come back after reboot
+        wait_for_connection:
+          timeout: 600
+          delay: 200
+        register: reboot_result8
+
+      - name: reboot time
+        debug:
+          msg: "The system rebooted in {{ reboot_result8.elapsed }} seconds."
+      when:
+        - ansible_distribution == 'CentOS'
+        - ansible_distribution_major_version == "8"
+        - reboot_required8.rc != 0
+        - packages_update8.stdout_lines | length > 0
+
+### Starting proccess for centos 7  ##################################################
+
+    - name: check packages for updates on Centos 7
+      shell: yum list updates --disablerepo="*" --enablerepo={{ centos_7_repos }} | awk 'f;/Updated Packages/{f=1;}' | awk '{ print $1 }'
+      changed_when: packages_update7.stdout_lines | length > 0
+      args:
+        warn: false
+      register: packages_update7
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "7"
+
+    - name: display packages that are going to be updated on Centos 7
+      debug:
+        msg: "Found {{ packages_update7.stdout_lines | length }} packages to be updated:\n\n{{ packages_update7.stdout_lines }}"
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "7"
+
+    - fail:
+        msg: System is already updated
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "7" and packages_update7.stdout_lines | length == 0
+
+    - block:
+      - name: install only updates from {{ centos_7_repos }} using yum module for Centos 7
+        yum:
+          name: "*"
+          state: latest
+          enablerepo: '{{ centos_7_repos }}'
+          disablerepo: '*'
+
+      - name: install yum-utils
+        package:
+          name: yum-utils
+          state: latest
+          enablerepo: '{{ centos_7_repos }}'
+          disablerepo: '*'
+      - name: check if reboot is required with needs-restarting -r for Centos 7
+        shell: needs-restarting -r
+        args:
+          warn: no
+        failed_when: false
+        register: reboot_required7
+        changed_when: false
+      when: ansible_distribution == "CentOS" and ansible_distribution_major_version == "7" and packages_update7.stdout_lines | length > 0
+
+##### Print variables for debug
+ 
+    - name: Print needs-restarting exit code for Centos 7 
+      debug:
+        var: reboot_required7.rc
+      when:
+        - ansible_distribution == "CentOS"
+        - ansible_distribution_major_version == "7"
+        - packages_update7.stdout_lines | length > 0
+
+## reboot centos 7 if required
+
+    - block:
+      - name: reboot the server if required
+        reboot:
+          reboot_timeout: 600
+
+      - name: wait for server to come back after reboot
+        wait_for_connection:
+          timeout: 600
+          delay: 200
+        register: reboot_result7
+
+      - name: reboot time
+        debug:
+          msg: "The system rebooted in {{ reboot_result7.elapsed }} seconds."
+      when:
+        - ansible_distribution == 'CentOS'
+        - ansible_distribution_major_version == "7"
+        - reboot_required7.rc != 0
+        - packages_update7.stdout_lines | length > 0
